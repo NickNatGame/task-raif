@@ -1,0 +1,5 @@
+# C: is almost full. Use --target and TMPDIR on D: as documented in RESEARCH.md.
+# The optional GRU runtime is not installed into the project's C:-backed .venv.
+--extra-index-url https://download.pytorch.org/whl/cu124
+-r requirements_compet.txt
+torch==2.6.0+cu124

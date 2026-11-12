@@ -1,0 +1,63 @@
+# Local environment and credentials
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.kaggle/
+kaggle.json
+
+# Python and notebook caches
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.notebook_backups/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Source datasets
+/task 1/trump_truths_dataset.json
+/task 2/tweets_coronavirus_new.csv
+/task 3/data/
+
+# Generated arrays, checkpoints and intermediate artifacts
+artifacts/
+*.npy
+*.npz
+*.pt
+*.pth
+*.pkl
+*.pickle
+*.joblib
+/task 3/submission*.csv
+
+# Keep the curated best solution reproducible
+/task 3/models/*
+!/task 3/models/manifest.json
+!/task 3/models/view_codes_gru.pt
+!/task 3/models/lightgbm.txt
+!/task 3/submission_view_codes.csv
+
+# Local editor files, archives and temporary output
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.bak
+*~
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
