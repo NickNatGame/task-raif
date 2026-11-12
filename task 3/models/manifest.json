@@ -2,7 +2,7 @@
   "recipe": "75% View Codes GRU +25% LightGBM",
   "public_score": 0.46172,
   "place_reported_by_participant": 2,
-  "private_score": null,
+  "private_score": 0.40311,
   "test_rows": 12359,
   "candidate_products": [
     1,

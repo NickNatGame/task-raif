@@ -1,4 +1,5 @@
-"""Freeze evaluation indices and audit saved OOF; this module never trains a model."""
+"""Фиксированные клиентские/временные фолды и метрики с bootstrap по клиентам"""
+
 import argparse
 import hashlib
 import json
@@ -14,72 +15,102 @@ RECENT = pd.Timestamp("2026-04-07").value // 1_000_000
 WINDOWS = [("2026-04-08", "2026-04-10"), ("2026-04-10", "2026-04-12"),
            ("2026-04-12", "2026-04-17")]
 
+# Столбцы meta: client_id, target_product, конец видимого префикса, время метки.
+# Даты хранятся в миллисекундах; 616 основной срез выбирается после разбиения 746 строк.
 
 def partitions(meta):
-    """Indices refer to the recent-example table, not the full historical cache."""
+    """Разбить таблицу поздних примеров на три клиентских и три временных фолда.
+
+    Возвращаемые индексы относятся к meta. Во временных фолдах метка обучения
+    должна быть известна до cutoff; проверяемый префикс заканчивается после него.
+    """
     splits = []
-    for i, (train, valid) in enumerate(GroupKFold(3).split(meta, groups=meta[:, 0])):
-        splits.append(dict(name=f"client_{i}", train=train, valid=valid, cutoff=None))
+
+    for i, (train_indices, valid_indices) in enumerate(GroupKFold(3).split(meta, groups=meta[:, 0])):
+        splits.append(dict(name=f"client_{i}", train=train_indices, valid=valid_indices, cutoff=None))
+
     for i, (start, stop) in enumerate(WINDOWS):
         cutoff, end = (pd.Timestamp(x).value // 1_000_000 for x in (start, stop))
         # Availability is determined by label time; prediction time is prefix end.
-        valid = np.flatnonzero((meta[:, 2] >= cutoff) & (meta[:, 2] < end))
-        train = np.flatnonzero((meta[:, 3] < cutoff) &
-                               ~np.isin(meta[:, 0], meta[valid, 0]))
-        splits.append(dict(name=f"forward_{i}", train=train, valid=valid, cutoff=int(cutoff)))
+        valid_indices = np.flatnonzero((meta[:, 2] >= cutoff) & (meta[:, 2] < end))
+        train_indices = np.flatnonzero((meta[:, 3] < cutoff) &
+                               ~np.isin(meta[:, 0], meta[valid_indices, 0]))
+        splits.append(dict(name=f"forward_{i}", train=train_indices, valid=valid_indices, cutoff=int(cutoff)))
+
     for split in splits:
-        train, valid = split["train"], split["valid"]
-        assert len(train) and len(valid), f"Empty fold: {split['name']}"
-        assert not set(meta[train, 0]) & set(meta[valid, 0])
+        train_indices, valid_indices = split["train"], split["valid"]
+
+        assert len(train_indices) and len(valid_indices), f"Empty fold: {split['name']}"
+        assert not set(meta[train_indices, 0]) & set(meta[valid_indices, 0])
+
         if split["cutoff"] is not None:
-            assert meta[train, 3].max() < split["cutoff"] <= meta[valid, 2].min()
+            assert meta[train_indices, 3].max() < split["cutoff"] <= meta[valid_indices, 2].min()
+
     return splits
 
 
 def evaluation_data():
+    """Выбрать известные поздние клики и вычислить отпечаток порядка строк/классов."""
+
     with np.load(OUT / "test_extended.npz") as source:
-        full_meta, products = source["history_m"].astype(np.int64), source["products"]
-    indices = np.flatnonzero(full_meta[:, 3] >= RECENT)
-    meta = full_meta[indices]
-    assert np.all(meta[:, 2] <= meta[:, 3])
-    assert np.isin(meta[:, 1], products).all()
-    assert len(np.unique(meta[:, [0, 2, 3]], axis=0)) == len(meta)
-    digest = hashlib.sha256(meta.tobytes() + indices.tobytes() + products.tobytes()).hexdigest()
-    return meta, products, indices, digest
+        all_metadata, products = source["history_m"].astype(np.int64), source["products"]
+
+    history_rows = np.flatnonzero(all_metadata[:, 3] >= RECENT)
+    metadata = all_metadata[history_rows]
+
+    assert np.all(metadata[:, 2] <= metadata[:, 3])
+    assert np.isin(metadata[:, 1], products).all()
+    assert len(np.unique(metadata[:, [0, 2, 3]], axis=0)) == len(metadata)
+
+    fingerprint = hashlib.sha256(metadata.tobytes() + history_rows.tobytes() + products.tobytes()).hexdigest()
+    return metadata, products, history_rows, fingerprint
 
 
 def metrics(probabilities, labels, clients, baseline=None):
-    """Score aligned, held-out rows; the caller must obey the frozen training splits."""
-    p, labels, clients = np.asarray(probabilities), np.asarray(labels), np.asarray(clients)
-    if (p.ndim != 2 or labels.shape != (len(p),) or clients.shape != labels.shape
-            or not len(p) or not np.issubdtype(labels.dtype, np.integer)
-            or np.any(labels < 0) or np.any(labels >= p.shape[1])
-            or not np.isfinite(p).all() or np.any(p < 0)
-            or not np.allclose(p.sum(1), 1, atol=1e-4, rtol=0)):
+    """Посчитать Accuracy, top3, log loss и доверительные интервалы.
+
+    labels содержит индексы столбцов, а не исходные ID продуктов. Bootstrap
+    пересэмплирует целых клиентов, сохраняя зависимость их примеров. При baseline
+    дополнительно оценивается парная разница Accuracy на тех же клиентах.
+    """
+    candidate_probabilities, labels, clients = np.asarray(probabilities), np.asarray(labels), np.asarray(clients)
+
+    if (candidate_probabilities.ndim != 2 or labels.shape != (len(candidate_probabilities),) or clients.shape != labels.shape
+            or not len(candidate_probabilities) or not np.issubdtype(labels.dtype, np.integer)
+            or np.any(labels < 0) or np.any(labels >= candidate_probabilities.shape[1])
+            or not np.isfinite(candidate_probabilities).all() or np.any(candidate_probabilities < 0)
+            or not np.allclose(candidate_probabilities.sum(1), 1, atol=1e-4, rtol=0)):
         raise ValueError("Expected finite normalized probabilities, aligned clients and class indices")
-    correct = p.argmax(1) == labels
-    top = np.argsort(-p, axis=1)[:, :min(3, p.shape[1])]
-    result = dict(examples=len(p), clients=len(np.unique(clients)), correct=int(correct.sum()),
-                  accuracy=float(correct.mean()), top3=float((top == labels[:, None]).any(1).mean()),
-                  log_loss=float(-np.log(np.clip(p[np.arange(len(p)), labels], 1e-15, 1)).mean()))
-    _, group = np.unique(clients, return_inverse=True)
-    counts = np.bincount(group)
-    sampled = np.random.default_rng(2026).integers(0, len(counts), (2000, len(counts)))
-    accuracy_bootstrap = np.bincount(group, weights=correct)[sampled].sum(1) / counts[sampled].sum(1)
+
+    correct = candidate_probabilities.argmax(1) == labels
+    top_candidates = np.argsort(-candidate_probabilities, axis=1)[:, :min(3, candidate_probabilities.shape[1])]
+    result = dict(examples=len(candidate_probabilities), clients=len(np.unique(clients)), correct=int(correct.sum()),
+                  accuracy=float(correct.mean()), top3=float((top_candidates == labels[:, None]).any(1).mean()),
+                  log_loss=float(-np.log(np.clip(candidate_probabilities[np.arange(len(candidate_probabilities)), labels], 1e-15, 1)).mean()))
+    _, client_indices = np.unique(clients, return_inverse=True)
+    examples_per_client = np.bincount(client_indices)
+    sampled_clients = np.random.default_rng(2026).integers(0, len(examples_per_client), (2000, len(examples_per_client)))
+
+    accuracy_bootstrap = np.bincount(client_indices, weights=correct)[sampled_clients].sum(1) / examples_per_client[sampled_clients].sum(1)
     result["accuracy_ci95"] = np.quantile(accuracy_bootstrap, [.025, .975]).tolist()
+
     if baseline is not None:
         metrics(baseline, labels, clients)
-        if np.asarray(baseline).shape != p.shape:
+
+        if np.asarray(baseline).shape != candidate_probabilities.shape:
             raise ValueError("Baseline and candidate must have the same candidate columns")
+
         delta = correct.astype(float) - (np.asarray(baseline).argmax(1) == labels)
-        totals = np.bincount(group, weights=delta)
-        difference = totals[sampled].sum(1) / counts[sampled].sum(1)
+        client_deltas = np.bincount(client_indices, weights=delta)
+        difference = client_deltas[sampled_clients].sum(1) / examples_per_client[sampled_clients].sum(1)
         result.update(paired_delta=float(delta.mean()),
                       paired_ci95=np.quantile(difference, [.025, .975]).tolist())
+
     return result
 
 
 def prepare():
+    """Сохранить неизменяемый протокол и индексы; смена рецепта требует новой версии"""
     meta, products, indices, digest = evaluation_data()
     splits = partitions(meta)
     protocol = dict(version=1, metadata_sha256=digest, examples=len(meta),
@@ -99,33 +130,43 @@ def prepare():
                                 role="same-policy grouped diagnostic" if s["cutoff"] is None
                                 else "causal forward diagnostic; requires newly fitted models") for s in splits])
     path = OUT / "evaluation_protocol_v1.json"
+
     if path.exists() and json.loads(path.read_text()) != protocol:
         raise ValueError("Frozen evaluation changed; keep version 1 and explicitly define a new protocol")
+
     path.write_text(json.dumps(protocol, indent=2))
     arrays = dict(meta=meta, products=products, history_indices=indices,
                   row_id=np.array([f"history_{i}" for i in indices]), metadata_sha256=np.array(digest))
+
     for split in splits:
         arrays[split["name"] + "_train"] = split["train"]
         arrays[split["name"] + "_valid"] = split["valid"]
+
     np.savez_compressed(OUT / "evaluation_indices_v1.npz", **arrays)
     frame = pd.DataFrame(meta, columns=["client_id", "target_product", "prefix_end", "label_time"])
     frame.insert(0, "history_index", indices)
+
     for split in splits:
         frame[split["name"]] = "excluded"
         frame.loc[split["train"], split["name"]] = "train"
         frame.loc[split["valid"], split["name"]] = "valid"
+
     frame.to_csv(OUT / "evaluation_rows_v1.csv", index=False)
     print("FROZEN_EVALUATION", protocol["folds"], flush=True)
+
     return meta, products, splits
 
 
 def audit_saved_oof(meta, products):
-    """Diagnostics only: these models were not fitted with the new forward folds."""
+    """Проверить старые клиентские OOF; они не заменяют временное переобучение."""
+
     with np.load(OUT / "behavior_fixed_recent_oof.npz") as source:
         assert np.array_equal(source["clients"], meta[:, 0])
         assert np.array_equal(source["labels"], np.searchsorted(products, meta[:, 1]))
         assert np.array_equal(source["products"], products)
+
         predictions = {name: source[name] for name in ["baseline", "behavior", "conservative"]}
+
     labels, clients = np.searchsorted(products, meta[:, 1]), meta[:, 0]
     reports = []
     days = pd.to_datetime(meta[:, 2], unit="ms").strftime("%Y-%m-%d").to_numpy()
@@ -133,24 +174,31 @@ def audit_saved_oof(meta, products):
               ("prefix_before_policy_change", meta[:, 2] < RECENT),
               ("prefix_April8_onwards", meta[:, 2] >= pd.Timestamp("2026-04-08").value // 1_000_000)]
     slices += [(day, days == day) for day in sorted(set(days))]
+
     for name, p in predictions.items():
         for label, mask in slices:
             if not mask.any():
                 continue
+
             result = metrics(p[mask], labels[mask], clients[mask], predictions["baseline"][mask])
             reports.append(dict(model=name, slice=label, role="saved grouped OOF; NOT forward evaluation", **result))
+
     pd.DataFrame(reports).to_csv(OUT / "evaluation_saved_oof_diagnostics.csv", index=False)
     forward_accuracy = None
     reason = "Forward fits have not been run for this protocol"
     report_path = OUT / "validation_report_v1.json"
+
     if report_path.exists():
         report = json.loads(report_path.read_text())
+
         if report['protocol']['evaluation_metadata_sha256'] != evaluation_data()[3]:
             raise ValueError("Forward results do not match the frozen evaluation data")
+
         forward_accuracy = {r['model']: r['accuracy'] for r in report['results']
                             if r['phase'] == 'forward' and r['scope'] == 'all_159'
                             and r['model'] in ['baseline', 'behavior', 'conservative']}
         reason = "Fixed-recipe forward fits completed; historical labels were inspected previously"
+
     audit = dict(examples=len(meta), prefixes_before_policy_change=int((meta[:, 2] < RECENT).sum()),
                  label_prefix_gap_seconds_quantiles=np.quantile((meta[:, 3] - meta[:, 2]) / 1000,
                                                                  [0, .5, .9, .99, 1]).tolist(),
@@ -162,7 +210,9 @@ def audit_saved_oof(meta, products):
 def self_check():
     p, y, clients = np.array([[.8, .2], [.3, .7]]), np.array([0, 1]), np.array([1, 2])
     result = metrics(p, y, clients, p[:, ::-1])
+
     assert result["accuracy"] == 1 and result["paired_ci95"] == [1, 1]
+
     for invalid in [p * 2, np.full_like(p, np.nan), -p]:
         try:
             metrics(invalid, y, clients)
@@ -170,16 +220,20 @@ def self_check():
             pass
         else:
             raise AssertionError("Invalid probabilities were accepted")
+
     def stamp(day):
         return pd.Timestamp(f"2026-04-{day:02d}").value // 1_000_000
+
     meta = np.array([[1, 0, stamp(7), stamp(7)], [1, 1, stamp(8), stamp(9)],
                      [2, 0, stamp(7), stamp(8)], [3, 1, stamp(9), stamp(9)],
                      [4, 1, stamp(10), stamp(11)], [5, 0, stamp(12), stamp(13)],
                      [6, 0, stamp(7), stamp(7)]])
     first = next(s for s in partitions(meta) if s["name"] == "forward_0")
+
     assert 0 not in first["train"]  # Same client as validation.
     assert 2 not in first["train"]  # Label not yet available at cutoff.
     assert 2 not in first["valid"]  # Prediction prefix belongs to the earlier period.
+
     print("EVALUATION_SELF_CHECK_OK", flush=True)
 
 
@@ -188,6 +242,7 @@ if __name__ == "__main__":
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     self_check()
+
     if not args.check:
         meta, products, _ = prepare()
         audit_saved_oof(meta, products)
