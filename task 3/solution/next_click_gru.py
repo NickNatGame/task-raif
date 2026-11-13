@@ -17,7 +17,7 @@ from torch import nn
 from sklearn.model_selection import GroupShuffleSplit
 
 ROOT = Path(__file__).resolve().parent
-CACHE = ROOT.parent / "artifacts"
+CACHE = ROOT.parents[1] / "artifacts"
 OUT = Path(os.environ.get("RAIF_GRU_ARTIFACTS", "/mnt/d/raif-gru/artifacts"))
 LENGTH = 160
 CUTOFF = pd.Timestamp("2026-04-04").value // 1_000_000

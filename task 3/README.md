@@ -10,9 +10,9 @@ View Codes GRU + LightGBM. **Public Accuracy: 0.46172. Private Accuracy: 0.40311
 bash 'task 3/run_gru.sh' --output /tmp/submission_reproduced.csv
 ```
 
-Скрипт загружает веса из `models/`, строит признаки и сверяет новый прогноз с `submission_view_codes.csv`. Обучения нет. Если не указать `--output`, результат появится в `task 3/submission_reproduced.csv`.
+Скрипт загружает веса из `solution/models/`, строит признаки и сверяет новый прогноз с `submission_view_codes.csv`. Обучения нет. Если не указать `--output`, результат появится в `task 3/solution/submission_reproduced.csv`.
 
-В `data/` нужны `test.parquet`, `event_dictionary.parquet` и `sample_submission.csv` из соревнования. Данные исключены из Git, их нужно скачать отдельно. Зависимости перечислены в `requirements_compet.txt` и `requirements_gru.txt`. В текущей WSL-установке обёртка использует `.venv` и подключает PyTorch с D:.
+В `solution/data/` нужны `test.parquet`, `event_dictionary.parquet` и `sample_submission.csv` из соревнования. Данные исключены из Git, их нужно скачать отдельно. Зависимости перечислены в `solution/requirements_compet.txt` и `solution/requirements_gru.txt`. В текущей WSL-установке обёртка использует `.venv` и подключает PyTorch с D:.
 
 ## Как получили лучшее решение
 
@@ -72,11 +72,13 @@ P = 0.75 × softmax(оценки GRU) + 0.25 × нормированные odds 
 
 ## Сохранённое решение
 
-- `predict_best.py` и `run_gru.sh`: запуск сохранённого решения.
-- `compet.ipynb`: описание модели и воспроизведение прогноза из ноутбука.
-- `models/`: веса GRU, LightGBM и `manifest.json` с метриками и контрольными суммами.
-- `next_click_features.py`, `next_click_behavior.py`, `next_click_view_codes.py`: расчёт признаков.
-- `next_click_gru.py`, `next_click_model.py`: нейронная модель и таблица кандидатов для дерева.
-- `next_click_eval.py`: фолды, метрики и bootstrap по клиентам.
+- `solution/predict_best.py` и `run_gru.sh`: запуск сохранённого решения.
+- `compet.ipynb`: обучение финального GRU + View Codes + LightGBM по шагам, прогноз нового ансамбля и отдельное воспроизведение сохранённого лучшего CSV. Новые артефакты обучения сохраняются в `task 3/solution/artifacts/notebook_training/`.
+- `solution/models/`: веса GRU, LightGBM и `manifest.json` с метриками и контрольными суммами.
+- `solution/next_click_features.py`, `solution/next_click_behavior.py`, `solution/next_click_view_codes.py`: расчёт признаков.
+- `solution/next_click_gru.py`, `solution/next_click_model.py`: нейронная модель и таблица кандидатов для дерева.
+- `solution/next_click_eval.py`: фолды, метрики и bootstrap по клиентам.
 
 Остальные модули сохраняют исторические функции кэширования, обучения и адаптации. Они используют прежние research-кэши; для готового инференса эти кэши не нужны.
+
+В корне `task 3/` оставлены README, ноутбук, `run_gru.sh` и лучший CSV. Исходный код, данные, модели, зависимости и результаты новых запусков находятся в `solution/`.

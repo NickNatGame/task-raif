@@ -11,4 +11,4 @@ fi
 if [[ -d /mnt/d/raif-gru/site-packages ]]; then
     export PYTHONPATH="/mnt/d/raif-gru/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 fi
-exec "$task_dir/../.venv/bin/python" -B "$task_dir/predict_best.py" "$@"
+exec "$task_dir/../.venv/bin/python" -B "$task_dir/solution/predict_best.py" "$@"

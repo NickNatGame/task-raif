@@ -1,6 +1,7 @@
 """LightGBM для пар «клиент, продукт» и адаптация на известных прошлых кликах"""
 
 from pathlib import Path
+import zipfile
 
 import lightgbm as lgb
 import numpy as np
@@ -43,7 +44,8 @@ def build_feature_cache():
                  for kind in ("candidate", "masked_history")
                  for suffix in ("features.npz", "meta.parquet")]
 
-        if all(path.exists() for path in paths):
+        if all(path.is_file() and path.stat().st_size > 0
+               and (path.suffix != ".npz" or zipfile.is_zipfile(path)) for path in paths):
             continue
 
         contexts, matrices, metadata = [], [], []
@@ -89,9 +91,20 @@ def build_feature_cache():
             ("candidate", contexts, matrices, metadata),
             ("masked_history", past_contexts, past_matrices, past_metadata),
         ):
-            np.savez_compressed(ARTIFACTS / f"{split}_{kind}_features.npz",
-                                context=np.asarray(context), product=np.asarray(matrix), products=products)
-            pd.DataFrame(meta).to_parquet(ARTIFACTS / f"{split}_{kind}_meta.parquet", index=False)
+            feature_path = ARTIFACTS / f"{split}_{kind}_features.npz"
+            meta_path = ARTIFACTS / f"{split}_{kind}_meta.parquet"
+            feature_temp = feature_path.with_suffix(".tmp.npz")
+            meta_temp = meta_path.with_suffix(".tmp.parquet")
+            try:
+                # Публикуем файлы только после успешной записи обоих временных файлов.
+                np.savez_compressed(feature_temp, context=np.asarray(context),
+                                    product=np.asarray(matrix), products=products)
+                pd.DataFrame(meta).to_parquet(meta_temp, index=False)
+                feature_temp.replace(feature_path)
+                meta_temp.replace(meta_path)
+            finally:
+                feature_temp.unlink(missing_ok=True)
+                meta_temp.unlink(missing_ok=True)
 
 
 def load_features(split, history=False):

@@ -313,7 +313,7 @@ def recent_ablation():
     assert a["meta"].equals(b["meta"])
     assert np.array_equal(a["y"], b["y"])
 
-    source_booster = lgb.Booster(model_file=str(ROOT.parent / "artifacts/candidate_full.txt"))
+    source_booster = lgb.Booster(model_file=str(ROOT.parents[1] / "artifacts/candidate_full.txt"))
     table, products = legacy_table()
     table = table[indices]
     p0, p1, pl = (np.zeros((len(a["y"]), len(products))) for _ in range(3))
@@ -480,7 +480,7 @@ def ensemble_ablation():
     labels, clients, products = data["y"], data["meta"].client_id.to_numpy(), data["products"]
     table, _ = legacy_table()
     table = table[indices]
-    base_booster = lgb.Booster(model_file=str(ROOT.parent / "artifacts/candidate_full.txt"))
+    base_booster = lgb.Booster(model_file=str(ROOT.parents[1] / "artifacts/candidate_full.txt"))
 
     p2 = np.zeros((len(labels), len(products)))
 

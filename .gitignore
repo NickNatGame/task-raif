@@ -26,7 +26,7 @@ htmlcov/
 # Source datasets
 /task 1/trump_truths_dataset.json
 /task 2/tweets_coronavirus_new.csv
-/task 3/data/
+/task 3/solution/data/
 
 # Generated arrays, checkpoints and intermediate artifacts
 artifacts/
@@ -38,12 +38,13 @@ artifacts/
 *.pickle
 *.joblib
 /task 3/submission*.csv
+/task 3/solution/submission*.csv
 
 # Keep the curated best solution reproducible
-/task 3/models/*
-!/task 3/models/manifest.json
-!/task 3/models/view_codes_gru.pt
-!/task 3/models/lightgbm.txt
+/task 3/solution/models/*
+!/task 3/solution/models/manifest.json
+!/task 3/solution/models/view_codes_gru.pt
+!/task 3/solution/models/lightgbm.txt
 !/task 3/submission_view_codes.csv
 
 # Local editor files, archives and temporary output

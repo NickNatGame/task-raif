@@ -206,7 +206,7 @@ def evaluate(source_prefix='aux_v1', report_prefix='auxiliary', loader=load_beha
 
     assert np.array_equal(products, table_products)
 
-    booster_base = lgb.Booster(model_file=str(ROOT.parent / 'artifacts/candidate_full.txt'))
+    booster_base = lgb.Booster(model_file=str(ROOT.parents[1] / 'artifacts/candidate_full.txt'))
     sources = {tag: model_loader(f'{source_prefix}_{tag}_source')[0] for tag in ['control', 'joint']}
 
     with np.load(OUT / 'behavior_fixed_recent_oof.npz') as ref:

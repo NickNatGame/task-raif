@@ -85,6 +85,6 @@
   "sha256": {
     "models/view_codes_gru.pt": "fe74e97c8dc0135118fd4fb97c84987502dfff97ac6d9498d373626b32ce70db",
     "models/lightgbm.txt": "efad65f0df54686164b0cae492cd63a1e4f7bd0e08c30c49ed13278a2bd4867e",
-    "submission_view_codes.csv": "9ef85077f8804769917cb4949953015e494387b3fe048a7e737847819889ae7f"
+    "../submission_view_codes.csv": "9ef85077f8804769917cb4949953015e494387b3fe048a7e737847819889ae7f"
   }
 }

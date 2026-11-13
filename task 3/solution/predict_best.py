@@ -29,7 +29,7 @@ def run(output):
     for name, expected_sha256 in manifest['sha256'].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == expected_sha256, name
 
-    assert output.resolve() != (ROOT / 'submission_view_codes.csv').resolve(), 'Выбери отдельный путь для нового CSV'
+    assert output.resolve() != (ROOT.parent / 'submission_view_codes.csv').resolve(), 'Выбери отдельный путь для нового CSV'
 
     checkpoint = torch.load(ROOT / 'models/view_codes_gru.pt', map_location='cpu', weights_only=True)
     gru_model = ProductGRU(
@@ -130,14 +130,14 @@ def run(output):
 
     assert submission.encoded_product.notna().all() and submission.encoded_product.isin(candidate_products).all()
 
-    reference = pd.read_csv(ROOT / 'submission_view_codes.csv')
+    reference = pd.read_csv(ROOT.parent / 'submission_view_codes.csv')
 
     assert submission.equals(reference), 'Прогноз отличается от лучшего; новый CSV не записан'
 
     submission.to_csv(output, index=False)
     output_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
 
-    assert output_sha256 == manifest['sha256']['submission_view_codes.csv']
+    assert output_sha256 == manifest['sha256']['../submission_view_codes.csv']
 
     print(f'BEST_REPRODUCED: {len(submission)} rows, device={DEVICE}, SHA256={output_sha256}', flush=True)
     print(output, flush=True)
